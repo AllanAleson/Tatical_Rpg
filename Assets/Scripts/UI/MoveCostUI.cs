@@ -25,18 +25,26 @@ public class MoveCostUI : MonoBehaviour
             return;
         }
 
-        costText.transform.rotation = mainCamera.transform.rotation;
+        if (mainCamera != null)
+            costText.transform.rotation = mainCamera.transform.rotation;
     }
 
     public void ShowCost(int cost, int remainingPM, Vector3 worldPosition)
     {
+        if (costText == null || clickManager == null)
+            return;
+
         if (clickManager.actionMode != ClickManager.ActionMode.Move)
             return;
 
+        if (cost <= 0 || remainingPM < 0)
+        {
+            HideCost();
+            return;
+        }
+
         costText.gameObject.SetActive(true);
-
         costText.text = "-" + cost + " PM";
-
         costText.transform.position = worldPosition + new Vector3(0, 0.55f, 0);
     }
 

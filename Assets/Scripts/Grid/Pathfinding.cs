@@ -3,17 +3,28 @@ using UnityEngine;
 
 public class Pathfinding : MonoBehaviour
 {
-    public UnitStats unitStats;
     public bool allowDiagonal = false;
 
-    public List<Vector2Int> FindPath(Vector3 startPos, int targetX, int targetZ)
+    public List<Vector2Int> FindPath(Vector3 startPos, int targetX, int targetZ, UnitStats moverStats)
     {
+        if (moverStats == null)
+        {
+            Debug.LogWarning("Pathfinding.FindPath recebeu moverStats nulo.");
+            return null;
+        }
+
+        if (moverStats.isDowned)
+            return null;
+
         Vector2Int start = new Vector2Int(
             Mathf.RoundToInt(startPos.x),
             Mathf.RoundToInt(startPos.z)
         );
 
         Vector2Int target = new Vector2Int(targetX, targetZ);
+
+        if (start == target)
+            return null;
 
         Queue<Vector2Int> queue = new Queue<Vector2Int>();
         Dictionary<Vector2Int, Vector2Int> cameFrom = new Dictionary<Vector2Int, Vector2Int>();
@@ -37,12 +48,12 @@ public class Pathfinding : MonoBehaviour
                 if (cameFrom.ContainsKey(next))
                     continue;
 
-if (IsBlocked(next, unitStats.gameObject))
-    continue;
+                if (IsBlocked(next, moverStats.gameObject))
+                    continue;
 
                 int newDistance = distance[current] + 1;
 
-                if (newDistance > unitStats.currentMovePoints)
+                if (newDistance > moverStats.currentMovePoints)
                     continue;
 
                 queue.Enqueue(next);
@@ -67,46 +78,42 @@ if (IsBlocked(next, unitStats.gameObject))
         return path;
     }
 
-    public bool CanReach(Vector3 startPos, int targetX, int targetZ)
+    public bool CanReach(Vector3 startPos, int targetX, int targetZ, UnitStats moverStats)
     {
-        return FindPath(startPos, targetX, targetZ) != null;
+        return FindPath(startPos, targetX, targetZ, moverStats) != null;
     }
 
-public bool IsBlocked(Vector2Int cell, GameObject ignoredObject)
-{
-    Vector3 checkPosition = new Vector3(cell.x, 0.5f, cell.y);
-
-    Collider[] hits = Physics.OverlapBox(
-        checkPosition,
-        new Vector3(0.4f, 0.4f, 0.4f)
-    );
-
-    foreach (Collider hit in hits)
+    public bool IsBlocked(Vector2Int cell, GameObject ignoredObject)
     {
-        // Ignora a própria unidade
-        if (hit.gameObject == ignoredObject)
-            continue;
+        Vector3 checkPosition = new Vector3(cell.x, 0.5f, cell.y);
 
-        // Qualquer objeto que tenha UnitStats é uma unidade
-        UnitStats stats = hit.GetComponent<UnitStats>();
+        Collider[] hits = Physics.OverlapBox(
+            checkPosition,
+            new Vector3(0.4f, 0.4f, 0.4f)
+        );
 
-        if (stats != null)
+        foreach (Collider hit in hits)
         {
-            // Unidade desmaiada não bloqueia
-            if (stats.isDowned)
+            if (ignoredObject != null && (hit.gameObject == ignoredObject || hit.transform.IsChildOf(ignoredObject.transform)))
                 continue;
 
-            // Unidade viva bloqueia
-            return true;
+            UnitStats stats = hit.GetComponentInParent<UnitStats>();
+
+            if (stats != null)
+            {
+                if (stats.isDowned)
+                    continue;
+
+                return true;
+            }
+
+            if (hit.CompareTag("Obstacle"))
+                return true;
         }
 
-        // Qualquer obstáculo bloqueia
-        if (hit.CompareTag("Obstacle"))
-            return true;
+        return false;
     }
 
-    return false;
-}
     public Vector2Int[] GetDirections()
     {
         if (allowDiagonal)
@@ -117,7 +124,6 @@ public bool IsBlocked(Vector2Int cell, GameObject ignoredObject)
                 new Vector2Int(-1, 0),
                 new Vector2Int(0, 1),
                 new Vector2Int(0, -1),
-
                 new Vector2Int(1, 1),
                 new Vector2Int(1, -1),
                 new Vector2Int(-1, 1),

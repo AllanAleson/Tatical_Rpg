@@ -14,6 +14,10 @@ public class UnitStats : MonoBehaviour
     [Header("Estado")]
     public bool isDowned = false;
 
+    [Header("Iniciativa")]
+    public int baseInitiative = 0;
+    public int rolledInitiative = 0;
+
     [Header("Vida")]
     public int maxHP = 10;
     public int currentHP = 10;
@@ -30,6 +34,21 @@ public class UnitStats : MonoBehaviour
     public int attackDamage = 3;
     public int attackRange = 1;
     public int attackCost = 2;
+
+    void OnEnable()
+    {
+        UnitManager.Instance?.RegisterUnit(this);
+    }
+
+    void Start()
+    {
+        UnitManager.Instance?.RegisterUnit(this);
+    }
+
+    void OnDisable()
+    {
+        UnitManager.Instance?.UnregisterUnit(this);
+    }
 
     public void ResetTurnPoints()
     {

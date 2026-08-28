@@ -2,17 +2,27 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class PlayerMovement : MonoBehaviour
+public class UnitMovement : MonoBehaviour
 {
     public float speed = 4f;
+
     private bool isMoving = false;
 
     public void MoveAlongPath(List<Vector2Int> path)
     {
-        if (!isMoving && path != null && path.Count > 0)
+        UnitStats stats = GetComponent<UnitStats>();
+
+        if (stats == null)
         {
-            StartCoroutine(MoveRoutine(path));
+            Debug.LogWarning("UnitMovement sem UnitStats: " + gameObject.name);
+            return;
         }
+
+        if (stats.isDowned)
+            return;
+
+        if (!isMoving && path != null && path.Count > 0)
+            StartCoroutine(MoveRoutine(path));
     }
 
     private IEnumerator MoveRoutine(List<Vector2Int> path)
@@ -36,11 +46,17 @@ public class PlayerMovement : MonoBehaviour
 
             transform.position = targetPosition;
         }
-        GetComponent<UnitStats>().SpendMovePoints(path.Count);
+
+        UnitStats stats = GetComponent<UnitStats>();
+
+        if (stats != null)
+            stats.SpendMovePoints(path.Count);
+
         isMoving = false;
     }
+
     public bool IsMoving()
-{
-    return isMoving;
-}
+    {
+        return isMoving;
+    }
 }

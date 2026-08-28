@@ -1,23 +1,58 @@
+# =========================
+# Unity generated
+# =========================
 [Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
 [Bb]uild/
 [Bb]uilds/
 [Ll]ogs/
-[Mm]emoryCaptures/
+UserSettings/
+MemoryCaptures/
+Recordings/
 
+# =========================
+# IDE / Visual Studio
+# =========================
 .vs/
 .vscode/
 .idea/
 
-UserSettings/
-
-Assets/_Recovery/
-
 *.csproj
 *.sln
+*.suo
 *.user
-*.tmp
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+.gitignore
+# =========================
+# Unity / IDE generated
+# =========================
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
 
+# =========================
+# OS
+# =========================
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# =========================
+# Codex / temporary logs
+# =========================
+.codex-unity-build.log
+*.log
+
+# =========================
+# Crash / temporary files
+# =========================
+sysinfo.txt
+*.tmp
+*.temp
+# Unity recovery
+Assets/_Recovery/
