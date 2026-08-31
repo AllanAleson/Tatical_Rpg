@@ -32,6 +32,15 @@ public class MovementHighlighter : MonoBehaviour
         int unitX = Mathf.RoundToInt(unitPosition.x);
         int unitZ = Mathf.RoundToInt(unitPosition.z);
         int movePoints = unitStats.currentMovePoints;
+        Dictionary<Vector2Int, int> reachableCosts =
+            pathfinding.GetReachableCosts(unitPosition, unitStats, movePoints);
+        HashSet<Vector2Int> shownCells = new HashSet<Vector2Int>();
+
+        foreach (KeyValuePair<Vector2Int, int> reachable in reachableCosts)
+        {
+            SpawnTile(reachable.Key, moveTilePrefab);
+            shownCells.Add(reachable.Key);
+        }
 
         for (int x = -movePoints; x <= movePoints; x++)
         {
@@ -46,20 +55,11 @@ public class MovementHighlighter : MonoBehaviour
                 int cellZ = unitZ + z;
                 Vector2Int cell = new Vector2Int(cellX, cellZ);
 
-                bool canReach = pathfinding.CanReach(unitPosition, cellX, cellZ, unitStats);
-
-                if (pathfinding.IsBlocked(cell, unitStats.gameObject))
-                    canReach = false;
-
-                GameObject prefabToUse = canReach ? moveTilePrefab : blockedTilePrefab;
-
-                if (prefabToUse == null)
+                if (shownCells.Contains(cell))
                     continue;
 
-                Vector3 tilePosition = new Vector3(cellX, 0.04f, cellZ);
-                GameObject tile = Instantiate(prefabToUse, tilePosition, Quaternion.identity);
-
-                activeTiles.Add(tile);
+                SpawnTile(cell, blockedTilePrefab);
+                shownCells.Add(cell);
             }
         }
     }
@@ -73,5 +73,16 @@ public class MovementHighlighter : MonoBehaviour
         }
 
         activeTiles.Clear();
+    }
+
+    private void SpawnTile(Vector2Int cell, GameObject prefab)
+    {
+        if (prefab == null)
+            return;
+
+        Vector3 tilePosition = new Vector3(cell.x, 0.04f, cell.y);
+        GameObject tile = Instantiate(prefab, tilePosition, Quaternion.identity);
+
+        activeTiles.Add(tile);
     }
 }

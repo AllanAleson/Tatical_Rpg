@@ -54,20 +54,19 @@ public class PathPreview : MonoBehaviour
             lastCell = currentCell;
             hasLastCell = true;
 
-            List<Vector2Int> path = pathfinding.FindPath(
+            PathResult path = pathfinding.GetReachablePath(
                 selectedUnit.transform.position,
-                gridX,
-                gridZ,
+                currentCell,
                 stats
             );
 
-            if (path == null || path.Count <= 0 || path.Count > stats.currentMovePoints)
+            if (path == null || !path.HasSteps || path.totalCost > stats.currentMovePoints)
             {
                 ClearPath();
                 return;
             }
 
-            ShowPath(path);
+            ShowPath(path.cells);
         }
         else
         {

@@ -89,7 +89,9 @@ public class TurnManager : MonoBehaviour
                 continue;
 
             int d20 = UnityEngine.Random.Range(1, 21);
-            unit.rolledInitiative = unit.baseInitiative + d20;
+            int armorInitiativeModifier = unit.GetArmorInitiativeModifier();
+            int shieldInitiativeModifier = unit.GetActiveShieldInitiativeModifier();
+            unit.rolledInitiative = d20 + unit.baseInitiative + unit.InitiativeModifier;
 
             entries.Add(new InitiativeEntry
             {
@@ -100,7 +102,9 @@ public class TurnManager : MonoBehaviour
 
             rollLog.AppendLine(
                 unit.gameObject.name + ": d20 " + d20 +
-                " + base " + unit.baseInitiative +
+                " + Base Initiative " + unit.baseInitiative +
+                " + Armor Initiative Modifier " + armorInitiativeModifier +
+                " + Shield Initiative Modifier " + shieldInitiativeModifier +
                 " = " + unit.rolledInitiative
             );
         }

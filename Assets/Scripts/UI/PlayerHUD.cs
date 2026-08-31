@@ -32,7 +32,7 @@ public class PlayerHUD : MonoBehaviour
         statsText.text =
             "HP: " + selectedStats.currentHP + "/" + selectedStats.maxHP + "\n" +
             "PA: " + selectedStats.currentActionPoints + "/" + selectedStats.maxActionPoints + "\n" +
-            "PM: " + selectedStats.currentMovePoints + "/" + selectedStats.maxMovePoints;
+            "PM: " + selectedStats.currentMovePoints + "/" + selectedStats.EffectiveMaxMovePoints;
     }
 
     private UnitStats GetSelectedStats()

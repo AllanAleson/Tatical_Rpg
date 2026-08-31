@@ -16,7 +16,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         if (context.decisionDelay > 0f)
             yield return new WaitForSeconds(context.decisionDelay);
 
-        UnitStats target = FindClosestLivingPlayer(context);
+        UnitStats target = FindBestLivingPlayer(context);
 
         if (target == null)
         {
@@ -38,7 +38,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         while (
             target != null &&
             !target.isDowned &&
-            context.unitStats.currentActionPoints >= context.unitStats.attackCost)
+            context.unitStats.currentActionPoints >= context.unitStats.GetCurrentAttackCost())
         {
             if (!CombatActions.TryBasicAttack(
                     context.unitStats,
@@ -63,9 +63,9 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         // Caso ele tenha derrubado o alvo e ainda tenha PA, tenta outro.
         if (attacked)
         {
-            while (context.unitStats.currentActionPoints >= context.unitStats.attackCost)
+            while (context.unitStats.currentActionPoints >= context.unitStats.GetCurrentAttackCost())
             {
-                target = FindClosestLivingPlayer(context);
+                target = FindBestLivingPlayer(context);
 
                 if (target == null)
                     break;
@@ -87,11 +87,11 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         // ---------------------------------------------------------
         // 2. Nao consegue atacar -> tenta se aproximar.
         // ---------------------------------------------------------
-        List<Vector2Int> path = FindBestMovementPath(context, target);
+        PathResult path = FindBestMovementPath(context, target);
 
-        if (path != null && path.Count > 0)
+        if (path != null && path.HasSteps)
         {
-            int spentMovePoints = path.Count;
+            int spentMovePoints = path.totalCost;
 
             context.movement.MoveAlongPath(path);
 
@@ -100,7 +100,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
 
             Debug.Log(
                 "[AI] " + context.unitStats.gameObject.name +
-                " moveu " + spentMovePoints +
+                " moveu " + path.cells.Count +
                 " celulas / gastou " + spentMovePoints + " PM."
             );
 
@@ -121,7 +121,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         while (
             target != null &&
             !target.isDowned &&
-            context.unitStats.currentActionPoints >= context.unitStats.attackCost)
+            context.unitStats.currentActionPoints >= context.unitStats.GetCurrentAttackCost())
         {
             if (!CombatActions.TryBasicAttack(
                     context.unitStats,
@@ -144,9 +144,9 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         // 4. Se derrubou o alvo mas ainda tem PA,
         // tenta atacar outro alvo que esteja em alcance.
         // ---------------------------------------------------------
-        while (context.unitStats.currentActionPoints >= context.unitStats.attackCost)
+        while (context.unitStats.currentActionPoints >= context.unitStats.GetCurrentAttackCost())
         {
-            UnitStats newTarget = FindClosestLivingPlayer(context);
+            UnitStats newTarget = FindBestLivingPlayer(context);
 
             if (newTarget == null)
                 break;
@@ -205,29 +205,45 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         );
     }
 
-    private UnitStats FindClosestLivingPlayer(EnemyAITurnContext context)
+    private UnitStats FindBestLivingPlayer(EnemyAITurnContext context)
     {
         List<UnitStats> players = context.unitManager.GetLivingPlayers();
 
-        UnitStats closest = null;
-        int closestDistance = int.MaxValue;
+        UnitStats best = null;
+        int bestPathCost = int.MaxValue;
+        int bestFallbackDistance = int.MaxValue;
 
         foreach (UnitStats player in players)
         {
             if (player == null || player.isDowned)
                 continue;
 
-            int distance =
-                CombatActions.GetGridDistance(context.unitStats, player);
+            if (CombatActions.CanBasicAttack(context.unitStats, player, out string failureReason))
+                return player;
 
-            if (distance < closestDistance)
+            PathResult pathToAttackRange = FindFullPathToAttackRange(context, player);
+
+            if (pathToAttackRange != null && pathToAttackRange.success)
             {
-                closest = player;
-                closestDistance = distance;
+                if (pathToAttackRange.totalCost < bestPathCost)
+                {
+                    best = player;
+                    bestPathCost = pathToAttackRange.totalCost;
+                }
+
+                continue;
+            }
+
+            int fallbackDistance = CombatActions.GetGridDistance(context.unitStats, player);
+
+            if (best == null && fallbackDistance < bestFallbackDistance)
+            {
+                best = player;
+                bestFallbackDistance = fallbackDistance;
             }
         }
 
-        return closest;
+        return best;
     }
 
     private IEnumerator FinishAttack(
@@ -238,9 +254,8 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
 
         Debug.Log(
             "[AI] " + attacker.gameObject.name +
-            " atacou " + target.gameObject.name +
-            " causando " + attacker.attackDamage +
-            " dano. PA restante: " +
+            " resolveu ataque basico contra " + target.gameObject.name +
+            ". PA restante: " +
             attacker.currentActionPoints
         );
 
@@ -248,7 +263,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
             yield return new WaitForSeconds(context.afterAttackDelay);
     }
 
-    private List<Vector2Int> FindBestMovementPath(
+    private PathResult FindBestMovementPath(
         EnemyAITurnContext context,
         UnitStats target)
     {
@@ -257,36 +272,41 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         if (mover.currentMovePoints <= 0)
             return null;
 
-        Vector3 startPosition = mover.transform.position;
+        PathResult fullPath = FindFullPathToAttackRange(context, target);
 
-        int startX = Mathf.RoundToInt(startPosition.x);
-        int startZ = Mathf.RoundToInt(startPosition.z);
+        if (fullPath == null || !fullPath.success)
+            return null;
+
+        return context.pathfinding.TrimPathToMovePoints(
+            fullPath,
+            mover.currentMovePoints
+        );
+    }
+
+    private PathResult FindFullPathToAttackRange(
+        EnemyAITurnContext context,
+        UnitStats target)
+    {
+        UnitStats mover = context.unitStats;
+        Vector3 startPosition = mover.transform.position;
 
         int targetX = Mathf.RoundToInt(target.transform.position.x);
         int targetZ = Mathf.RoundToInt(target.transform.position.z);
+        int attackRange = mover.GetCurrentAttackRange();
 
-        List<Vector2Int> bestPath = null;
+        PathResult bestPath = null;
 
-        int bestDistance =
-            CombatActions.GetGridDistance(mover, target);
-
-        for (int x = -mover.currentMovePoints;
-             x <= mover.currentMovePoints;
-             x++)
+        for (int x = -attackRange; x <= attackRange; x++)
         {
-            for (int z = -mover.currentMovePoints;
-                 z <= mover.currentMovePoints;
-                 z++)
+            for (int z = -attackRange; z <= attackRange; z++)
             {
-                int estimatedDistance =
-                    Mathf.Abs(x) + Mathf.Abs(z);
+                int distanceToTarget = Mathf.Abs(x) + Mathf.Abs(z);
 
-                if (estimatedDistance <= 0 ||
-                    estimatedDistance > mover.currentMovePoints)
+                if (distanceToTarget <= 0 || distanceToTarget > attackRange)
                     continue;
 
-                int cellX = startX + x;
-                int cellZ = startZ + z;
+                int cellX = targetX + x;
+                int cellZ = targetZ + z;
 
                 Vector2Int cell =
                     new Vector2Int(cellX, cellZ);
@@ -296,34 +316,22 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
                         mover.gameObject))
                     continue;
 
-                List<Vector2Int> path =
-                    context.pathfinding.FindPath(
+                if (!CombatActions.CanAttackFromCell(mover, cell, target, out string failureReason))
+                    continue;
+
+                PathResult path =
+                    context.pathfinding.FindPathResult(
                         startPosition,
-                        cellX,
-                        cellZ,
+                        cell,
                         mover
                     );
 
-                if (path == null ||
-                    path.Count == 0 ||
-                    path.Count > mover.currentMovePoints)
+                if (path == null || !path.success || !path.HasSteps)
                     continue;
 
-                int distanceToTarget =
-                    Mathf.Abs(targetX - cellX) +
-                    Mathf.Abs(targetZ - cellZ);
-
-                if (
-                    distanceToTarget < bestDistance ||
-                    (
-                        distanceToTarget == bestDistance &&
-                        bestPath != null &&
-                        path.Count < bestPath.Count
-                    )
-                )
+                if (bestPath == null || path.totalCost < bestPath.totalCost)
                 {
                     bestPath = path;
-                    bestDistance = distanceToTarget;
                 }
             }
         }

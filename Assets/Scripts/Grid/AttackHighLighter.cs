@@ -37,7 +37,7 @@ public class AttackHighlighter : MonoBehaviour
 
         int unitX = Mathf.RoundToInt(unit.transform.position.x);
         int unitZ = Mathf.RoundToInt(unit.transform.position.z);
-        int range = stats.attackRange;
+        int range = stats.GetCurrentAttackRange();
 
         for (int x = -range; x <= range; x++)
         {
@@ -48,10 +48,16 @@ public class AttackHighlighter : MonoBehaviour
                 if (distance <= 0 || distance > range)
                     continue;
 
+                Vector2Int targetCell = new Vector2Int(unitX + x, unitZ + z);
+                string failureReason;
+
+                if (!CombatActions.CanAttackCell(stats, targetCell, out failureReason))
+                    continue;
+
                 if (attackTilePrefab == null)
                     continue;
 
-                Vector3 position = new Vector3(unitX + x, 0.09f, unitZ + z);
+                Vector3 position = new Vector3(targetCell.x, 0.09f, targetCell.y);
                 GameObject tile = Instantiate(attackTilePrefab, position, Quaternion.identity);
 
                 activeTiles.Add(tile);

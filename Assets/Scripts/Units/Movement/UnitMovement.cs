@@ -8,6 +8,23 @@ public class UnitMovement : MonoBehaviour
 
     private bool isMoving = false;
 
+    public void MoveAlongPath(PathResult path)
+    {
+        UnitStats stats = GetComponent<UnitStats>();
+
+        if (stats == null)
+        {
+            Debug.LogWarning("UnitMovement sem UnitStats: " + gameObject.name);
+            return;
+        }
+
+        if (stats.isDowned)
+            return;
+
+        if (!isMoving && path != null && path.HasSteps)
+            StartCoroutine(MoveRoutine(path.cells, path.totalCost));
+    }
+
     public void MoveAlongPath(List<Vector2Int> path)
     {
         UnitStats stats = GetComponent<UnitStats>();
@@ -22,10 +39,10 @@ public class UnitMovement : MonoBehaviour
             return;
 
         if (!isMoving && path != null && path.Count > 0)
-            StartCoroutine(MoveRoutine(path));
+            StartCoroutine(MoveRoutine(path, CalculateAdjacentPathCost(path)));
     }
 
-    private IEnumerator MoveRoutine(List<Vector2Int> path)
+    private IEnumerator MoveRoutine(List<Vector2Int> path, int movePointCost)
     {
         isMoving = true;
 
@@ -50,7 +67,7 @@ public class UnitMovement : MonoBehaviour
         UnitStats stats = GetComponent<UnitStats>();
 
         if (stats != null)
-            stats.SpendMovePoints(path.Count);
+            stats.SpendMovePoints(movePointCost);
 
         isMoving = false;
     }
@@ -58,5 +75,32 @@ public class UnitMovement : MonoBehaviour
     public bool IsMoving()
     {
         return isMoving;
+    }
+
+    private int CalculateAdjacentPathCost(List<Vector2Int> path)
+    {
+        Vector2Int previous = new Vector2Int(
+            Mathf.RoundToInt(transform.position.x),
+            Mathf.RoundToInt(transform.position.z)
+        );
+
+        int totalCost = 0;
+
+        foreach (Vector2Int cell in path)
+        {
+            int deltaX = Mathf.Abs(cell.x - previous.x);
+            int deltaY = Mathf.Abs(cell.y - previous.y);
+
+            if (deltaX == 1 && deltaY == 1)
+                totalCost += 2;
+            else if (deltaX + deltaY == 1)
+                totalCost += 1;
+            else
+                totalCost += 0;
+
+            previous = cell;
+        }
+
+        return totalCost;
     }
 }

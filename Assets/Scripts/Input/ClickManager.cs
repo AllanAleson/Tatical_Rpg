@@ -282,14 +282,13 @@ public class ClickManager : MonoBehaviour
             return;
         }
 
-        List<Vector2Int> path = pathfinding.FindPath(
+        PathResult path = pathfinding.GetReachablePath(
             selectedUnit.transform.position,
-            gridX,
-            gridZ,
+            targetCell,
             stats
         );
 
-        if (path != null && path.Count > 0)
+        if (path != null && path.HasSteps)
         {
             selectedUnit.MoveAlongPath(path);
 

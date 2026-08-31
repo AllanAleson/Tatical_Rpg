@@ -61,20 +61,20 @@ public class GridHover : MonoBehaviour
             int gridX = Mathf.RoundToInt(hit.point.x);
             int gridZ = Mathf.RoundToInt(hit.point.z);
 
-            List<Vector2Int> path = pathfinding.FindPath(
+            Vector2Int targetCell = new Vector2Int(gridX, gridZ);
+            PathResult path = pathfinding.GetReachablePath(
                 selectedUnit.transform.position,
-                gridX,
-                gridZ,
+                targetCell,
                 stats
             );
 
-            if (path == null || path.Count <= 0 || path.Count > stats.currentMovePoints)
+            if (path == null || !path.HasSteps || path.totalCost > stats.currentMovePoints)
             {
                 HideHover();
                 return;
             }
 
-            int cost = path.Count;
+            int cost = path.totalCost;
             int remaining = stats.currentMovePoints - cost;
             Vector3 targetPosition = new Vector3(gridX, 0.15f, gridZ);
 
