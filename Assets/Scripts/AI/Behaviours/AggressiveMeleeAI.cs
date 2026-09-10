@@ -16,6 +16,9 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         if (context.decisionDelay > 0f)
             yield return new WaitForSeconds(context.decisionDelay);
 
+        if (!context.CanAct)
+            yield break;
+
         UnitStats target = FindBestLivingPlayer(context);
 
         if (target == null)
@@ -36,6 +39,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         bool attacked = false;
 
         while (
+            context.CanAct &&
             target != null &&
             !target.isDowned &&
             context.unitStats.currentActionPoints >= context.unitStats.GetCurrentAttackCost())
@@ -43,7 +47,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
             if (!CombatActions.TryBasicAttack(
                     context.unitStats,
                     target,
-                    out string failureReason))
+                    out string failureReason, context.action))
             {
                 break;
             }
@@ -63,7 +67,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         // Caso ele tenha derrubado o alvo e ainda tenha PA, tenta outro.
         if (attacked)
         {
-            while (context.unitStats.currentActionPoints >= context.unitStats.GetCurrentAttackCost())
+            while (context.CanAct && context.unitStats.currentActionPoints >= context.unitStats.GetCurrentAttackCost())
             {
                 target = FindBestLivingPlayer(context);
 
@@ -73,7 +77,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
                 if (!CombatActions.TryBasicAttack(
                         context.unitStats,
                         target,
-                        out string failureReason))
+                        out string failureReason, context.action))
                 {
                     break;
                 }
@@ -87,16 +91,22 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         // ---------------------------------------------------------
         // 2. Nao consegue atacar -> tenta se aproximar.
         // ---------------------------------------------------------
+        if (!context.CanAct)
+            yield break;
+
         PathResult path = FindBestMovementPath(context, target);
 
         if (path != null && path.HasSteps)
         {
             int spentMovePoints = path.totalCost;
 
-            context.movement.MoveAlongPath(path);
+            context.movement.MoveAlongPath(path, context.action);
 
-            while (context.movement.IsMoving())
+            while (context.CanAct && context.movement.IsMoving())
                 yield return null;
+
+            if (!context.CanAct)
+                yield break;
 
             Debug.Log(
                 "[AI] " + context.unitStats.gameObject.name +
@@ -119,6 +129,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         // 3. Depois de mover, usa TODOS os PA possiveis.
         // ---------------------------------------------------------
         while (
+            context.CanAct &&
             target != null &&
             !target.isDowned &&
             context.unitStats.currentActionPoints >= context.unitStats.GetCurrentAttackCost())
@@ -126,7 +137,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
             if (!CombatActions.TryBasicAttack(
                     context.unitStats,
                     target,
-                    out string failureReason))
+                    out string failureReason, context.action))
             {
                 break;
             }
@@ -144,7 +155,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
         // 4. Se derrubou o alvo mas ainda tem PA,
         // tenta atacar outro alvo que esteja em alcance.
         // ---------------------------------------------------------
-        while (context.unitStats.currentActionPoints >= context.unitStats.GetCurrentAttackCost())
+        while (context.CanAct && context.unitStats.currentActionPoints >= context.unitStats.GetCurrentAttackCost())
         {
             UnitStats newTarget = FindBestLivingPlayer(context);
 
@@ -161,7 +172,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
             if (!CombatActions.TryBasicAttack(
                     context.unitStats,
                     target,
-                    out string failureReason))
+                    out string failureReason, context.action))
             {
                 break;
             }
@@ -180,6 +191,7 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
     private bool IsValidContext(EnemyAITurnContext context)
     {
         return context != null &&
+               context.CanAct &&
                context.unitStats != null &&
                context.movement != null &&
                context.unitManager != null &&
@@ -289,9 +301,11 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
     {
         UnitStats mover = context.unitStats;
         Vector3 startPosition = mover.transform.position;
+        GridManager grid = context.pathfinding.Grid;
+        if (grid == null)
+            return null;
 
-        int targetX = Mathf.RoundToInt(target.transform.position.x);
-        int targetZ = Mathf.RoundToInt(target.transform.position.z);
+        Vector2Int targetCell = grid.WorldToCell(target.transform.position);
         int attackRange = mover.GetCurrentAttackRange();
 
         PathResult bestPath = null;
@@ -305,15 +319,10 @@ public class AggressiveMeleeAI : EnemyAIBehaviour
                 if (distanceToTarget <= 0 || distanceToTarget > attackRange)
                     continue;
 
-                int cellX = targetX + x;
-                int cellZ = targetZ + z;
+                Vector2Int cell = targetCell + new Vector2Int(x, z);
 
-                Vector2Int cell =
-                    new Vector2Int(cellX, cellZ);
-
-                if (context.pathfinding.IsBlocked(
-                        cell,
-                        mover.gameObject))
+                if (!grid.IsCellValid(cell) ||
+                    grid.IsCellBlocked(cell, mover.gameObject))
                     continue;
 
                 if (!CombatActions.CanAttackFromCell(mover, cell, target, out string failureReason))

@@ -9,6 +9,9 @@ public class UnitManager : MonoBehaviour
 
     public UnitStats selectedUnit;
 
+    [Header("Debug")]
+    public bool logUnitRegistration = false;
+
     void Awake()
     {
         if (Instance != null && Instance != this)
@@ -33,7 +36,18 @@ public class UnitManager : MonoBehaviour
 
     public void RefreshUnits()
     {
-        allUnits.Clear();
+        HashSet<UnitStats> knownUnits = new HashSet<UnitStats>();
+
+        for (int i = allUnits.Count - 1; i >= 0; i--)
+        {
+            UnitStats unit = allUnits[i];
+
+            if (unit == null || !unit.isActiveAndEnabled || !knownUnits.Add(unit))
+                allUnits.RemoveAt(i);
+        }
+
+        if (selectedUnit == null || !selectedUnit.isActiveAndEnabled || !allUnits.Contains(selectedUnit))
+            selectedUnit = null;
 
         UnitStats[] units = FindObjectsByType<UnitStats>(
             FindObjectsInactive.Exclude
@@ -47,14 +61,16 @@ public class UnitManager : MonoBehaviour
 
     public void RegisterUnit(UnitStats unit)
     {
-        if (unit == null)
+        if (unit == null || !unit.isActiveAndEnabled)
             return;
 
         if (allUnits.Contains(unit))
             return;
 
         allUnits.Add(unit);
-        Debug.Log("Unidade registrada: " + unit.gameObject.name);
+
+        if (logUnitRegistration)
+            Debug.Log("Unidade registrada: " + unit.gameObject.name);
     }
 
     public void UnregisterUnit(UnitStats unit)
@@ -67,7 +83,7 @@ public class UnitManager : MonoBehaviour
         if (selectedUnit == unit)
             selectedUnit = null;
 
-        if (removed)
+        if (removed && logUnitRegistration)
             Debug.Log("Unidade removida: " + unit.gameObject.name);
     }
 

@@ -35,8 +35,13 @@ public class AttackHighlighter : MonoBehaviour
         if (stats.isDowned)
             return;
 
-        int unitX = Mathf.RoundToInt(unit.transform.position.x);
-        int unitZ = Mathf.RoundToInt(unit.transform.position.z);
+        GridManager grid = GridManager.Instance != null
+            ? GridManager.Instance
+            : FindAnyObjectByType<GridManager>();
+        if (grid == null)
+            return;
+
+        Vector2Int unitCell = grid.WorldToCell(unit.transform.position);
         int range = stats.GetCurrentAttackRange();
 
         for (int x = -range; x <= range; x++)
@@ -48,17 +53,19 @@ public class AttackHighlighter : MonoBehaviour
                 if (distance <= 0 || distance > range)
                     continue;
 
-                Vector2Int targetCell = new Vector2Int(unitX + x, unitZ + z);
+                Vector2Int targetCell = unitCell + new Vector2Int(x, z);
                 string failureReason;
 
-                if (!CombatActions.CanAttackCell(stats, targetCell, out failureReason))
+                if (!grid.IsCellValid(targetCell) ||
+                    !CombatActions.CanAttackCell(stats, targetCell, out failureReason))
                     continue;
 
                 if (attackTilePrefab == null)
                     continue;
 
-                Vector3 position = new Vector3(targetCell.x, 0.09f, targetCell.y);
+                Vector3 position = grid.CellToWorld(targetCell, 0.09f);
                 GameObject tile = Instantiate(attackTilePrefab, position, Quaternion.identity);
+                grid.ValidateCellVisual(tile, targetCell, "Attack highlight");
 
                 activeTiles.Add(tile);
             }

@@ -50,6 +50,9 @@ public class ClickManager : MonoBehaviour
     void Update()
     {
         SyncSelectionWithTurn();
+        if (turnManager == null || !turnManager.CanAcceptPlayerInput)
+            return;
+
         HandleModeInput();
 
         if (!Input.GetMouseButtonDown(0))
@@ -99,6 +102,9 @@ public class ClickManager : MonoBehaviour
 
     private bool TrySelectPlayerUnit(UnitStats clickedUnit)
     {
+        if (turnManager == null || !turnManager.CanAcceptPlayerInput)
+            return false;
+
         if (clickedUnit == null)
             return false;
 
@@ -180,6 +186,9 @@ public class ClickManager : MonoBehaviour
 
     private bool CanUseSelectedUnit(UnitStats stats)
     {
+        if (turnManager == null || !turnManager.CanAcceptPlayerInput)
+            return false;
+
         if (selectedUnit == null || stats == null)
         {
             Debug.Log("Selecione uma unidade primeiro.");
@@ -203,13 +212,8 @@ public class ClickManager : MonoBehaviour
 
     private bool IsUnitAllowedThisTurn(UnitStats stats)
     {
-        if (turnManager == null)
-            return true;
-
-        if (!turnManager.HasCombatStarted())
-            return true;
-
-        return turnManager.IsCurrentUnit(stats) &&
+        return turnManager != null && turnManager.HasCombatStarted() &&
+            turnManager.IsCurrentUnit(stats) &&
             stats.team == UnitStats.Team.Player;
     }
 
@@ -254,6 +258,13 @@ public class ClickManager : MonoBehaviour
             return;
         }
 
+        GridManager grid = pathfinding.Grid;
+        if (grid == null)
+        {
+            Debug.LogWarning("ClickManager nao encontrou GridManager.");
+            return;
+        }
+
         if (stats.currentMovePoints <= 0)
         {
             Debug.Log("Sem PM.");
@@ -261,14 +272,14 @@ public class ClickManager : MonoBehaviour
             return;
         }
 
-        int gridX = Mathf.RoundToInt(hit.point.x);
-        int gridZ = Mathf.RoundToInt(hit.point.z);
+        Vector2Int startCell = grid.WorldToCell(selectedUnit.transform.position);
+        Vector2Int targetCell = grid.WorldToCell(hit.point);
 
-        Vector2Int startCell = new Vector2Int(
-            Mathf.RoundToInt(selectedUnit.transform.position.x),
-            Mathf.RoundToInt(selectedUnit.transform.position.z)
-        );
-        Vector2Int targetCell = new Vector2Int(gridX, gridZ);
+        if (!grid.IsCellValid(targetCell))
+        {
+            Debug.Log("Destino fora do grid ou sem piso.");
+            return;
+        }
 
         if (targetCell == startCell)
         {
@@ -276,7 +287,7 @@ public class ClickManager : MonoBehaviour
             return;
         }
 
-        if (pathfinding.IsBlocked(targetCell, selectedUnit.gameObject))
+        if (grid.IsCellBlocked(targetCell, selectedUnit.gameObject))
         {
             Debug.Log("Essa casa esta bloqueada.");
             return;

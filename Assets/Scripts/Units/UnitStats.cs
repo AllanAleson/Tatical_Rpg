@@ -137,13 +137,9 @@ public class UnitStats : MonoBehaviour
         UnitManager.Instance?.RegisterUnit(this);
     }
 
-    void Start()
-    {
-        UnitManager.Instance?.RegisterUnit(this);
-    }
-
     void OnDisable()
     {
+        CancelTurnActions();
         UnitManager.Instance?.UnregisterUnit(this);
     }
 
@@ -377,10 +373,17 @@ public class UnitStats : MonoBehaviour
     private void DownUnit()
     {
         isDowned = true;
+        CancelTurnActions();
         currentMovePoints = 0;
         currentActionPoints = 0;
 
         Debug.Log(gameObject.name + " ficou desmaiado.");
+    }
+
+    private void CancelTurnActions()
+    {
+        // Invalidate permanently, even if revived/re-enabled before the next frame.
+        FindAnyObjectByType<TurnManager>()?.CancelActionsForUnit(this);
     }
 
     public void Revive(int hpAmount)

@@ -9,6 +9,7 @@ public class GridHover : MonoBehaviour
     public ClickManager clickManager;
 
     private GameObject hoverTarget;
+    private bool warnedMissingMainCamera = false;
 
     void Start()
     {
@@ -50,7 +51,21 @@ public class GridHover : MonoBehaviour
         if (mainCamera == null)
         {
             HideHover();
-            Debug.LogWarning("GridHover nao encontrou Camera.main.");
+
+            if (!warnedMissingMainCamera)
+            {
+                Debug.LogWarning("GridHover nao encontrou Camera.main.");
+                warnedMissingMainCamera = true;
+            }
+
+            return;
+        }
+
+        warnedMissingMainCamera = false;
+        GridManager grid = pathfinding.Grid;
+        if (grid == null)
+        {
+            HideHover();
             return;
         }
 
@@ -58,10 +73,13 @@ public class GridHover : MonoBehaviour
 
         if (Physics.Raycast(ray, out RaycastHit hit))
         {
-            int gridX = Mathf.RoundToInt(hit.point.x);
-            int gridZ = Mathf.RoundToInt(hit.point.z);
+            Vector2Int targetCell = grid.WorldToCell(hit.point);
+            if (!grid.IsCellValid(targetCell))
+            {
+                HideHover();
+                return;
+            }
 
-            Vector2Int targetCell = new Vector2Int(gridX, gridZ);
             PathResult path = pathfinding.GetReachablePath(
                 selectedUnit.transform.position,
                 targetCell,
@@ -76,14 +94,15 @@ public class GridHover : MonoBehaviour
 
             int cost = path.totalCost;
             int remaining = stats.currentMovePoints - cost;
-            Vector3 targetPosition = new Vector3(gridX, 0.15f, gridZ);
+            Vector3 targetPosition = grid.CellToWorld(targetCell, 0.15f);
 
             if (moveCostUI != null)
                 moveCostUI.ShowCost(cost, remaining, targetPosition);
 
             if (hoverTarget != null)
             {
-                hoverTarget.transform.position = new Vector3(gridX, 0.08f, gridZ);
+                hoverTarget.transform.position = grid.CellToWorld(targetCell, 0.08f);
+                grid.ValidateCellVisual(hoverTarget, targetCell, "Hover");
                 hoverTarget.SetActive(true);
             }
         }

@@ -3,13 +3,25 @@ using UnityEngine;
 
 public class PathPreview : MonoBehaviour
 {
-    public GameObject pathTilePrefab;
     public Pathfinding pathfinding;
     public ClickManager clickManager;
+
+    [Header("Direction Sprites")]
+    public Sprite arrowN;
+    public Sprite arrowNE;
+    public Sprite arrowE;
+    public Sprite arrowSE;
+    public Sprite arrowS;
+    public Sprite arrowSW;
+    public Sprite arrowW;
+    public Sprite arrowNW;
+
+    [SerializeField] private float heightAboveFloor = 0.12f;
 
     private List<GameObject> activePathTiles = new List<GameObject>();
     private Vector2Int lastCell;
     private bool hasLastCell = false;
+    private bool warnedMissingMainCamera = false;
 
     void Update()
     {
@@ -36,7 +48,22 @@ public class PathPreview : MonoBehaviour
         {
             ClearPath();
             hasLastCell = false;
-            Debug.LogWarning("PathPreview nao encontrou Camera.main.");
+
+            if (!warnedMissingMainCamera)
+            {
+                Debug.LogWarning("PathPreview nao encontrou Camera.main.");
+                warnedMissingMainCamera = true;
+            }
+
+            return;
+        }
+
+        warnedMissingMainCamera = false;
+        GridManager grid = pathfinding.Grid;
+        if (grid == null)
+        {
+            ClearPath();
+            hasLastCell = false;
             return;
         }
 
@@ -44,9 +71,13 @@ public class PathPreview : MonoBehaviour
 
         if (Physics.Raycast(ray, out RaycastHit hit))
         {
-            int gridX = Mathf.RoundToInt(hit.point.x);
-            int gridZ = Mathf.RoundToInt(hit.point.z);
-            Vector2Int currentCell = new Vector2Int(gridX, gridZ);
+            Vector2Int currentCell = grid.WorldToCell(hit.point);
+            if (!grid.IsCellValid(currentCell))
+            {
+                ClearPath();
+                hasLastCell = false;
+                return;
+            }
 
             if (hasLastCell && currentCell == lastCell)
                 return;
@@ -66,7 +97,7 @@ public class PathPreview : MonoBehaviour
                 return;
             }
 
-            ShowPath(path.cells);
+            ShowPath(path.cells, grid.WorldToCell(selectedUnit.transform.position), grid);
         }
         else
         {
@@ -75,20 +106,57 @@ public class PathPreview : MonoBehaviour
         }
     }
 
-    private void ShowPath(List<Vector2Int> path)
+    private void ShowPath(List<Vector2Int> path, Vector2Int startCell, GridManager grid)
     {
         ClearPath();
 
-        if (path == null || pathTilePrefab == null)
+        if (path == null)
             return;
 
+        Vector2Int previousCell = startCell;
         foreach (Vector2Int cell in path)
         {
-            Vector3 position = new Vector3(cell.x, 0.12f, cell.y);
-            GameObject tile = Instantiate(pathTilePrefab, position, Quaternion.identity);
+            if (!grid.IsCellValid(cell))
+                continue;
+
+            Sprite arrow = GetArrowSprite(cell - previousCell);
+            previousCell = cell;
+
+            if (arrow == null)
+                continue;
+
+            GameObject tile = new GameObject($"Path Arrow {cell.x},{cell.y}");
+            tile.transform.position = grid.CellToWorld(cell, heightAboveFloor);
+            tile.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            tile.transform.localScale = Vector3.one * grid.cellSize;
+
+            SpriteRenderer renderer = tile.AddComponent<SpriteRenderer>();
+            renderer.sprite = arrow;
+            renderer.sortingOrder = 1;
+
+            grid.ValidateCellVisual(tile, cell, "Preview");
 
             activePathTiles.Add(tile);
         }
+    }
+
+    private Sprite GetArrowSprite(Vector2Int direction)
+    {
+        direction = new Vector2Int(
+            System.Math.Sign(direction.x),
+            System.Math.Sign(direction.y)
+        );
+
+        if (direction == Vector2Int.up) return arrowN;
+        if (direction == new Vector2Int(1, 1)) return arrowNE;
+        if (direction == Vector2Int.right) return arrowE;
+        if (direction == new Vector2Int(1, -1)) return arrowSE;
+        if (direction == Vector2Int.down) return arrowS;
+        if (direction == new Vector2Int(-1, -1)) return arrowSW;
+        if (direction == Vector2Int.left) return arrowW;
+        if (direction == new Vector2Int(-1, 1)) return arrowNW;
+
+        return null;
     }
 
     public void ClearPath()

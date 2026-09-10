@@ -32,8 +32,12 @@ public struct SpecialMovementConnection
 
 public class Pathfinding : MonoBehaviour
 {
+    public GridManager gridManager;
     public bool allowDiagonal = false;
     public int maxSearchIterations = 10000;
+
+    [Header("Debug")]
+    public bool logPathfindingSearches = false;
 
     private int nextSpecialConnectionId = 1;
     private readonly Dictionary<int, SpecialMovementConnection> specialConnections =
@@ -41,6 +45,16 @@ public class Pathfinding : MonoBehaviour
     private readonly Dictionary<Vector2Int, List<int>> specialConnectionsByOrigin =
         new Dictionary<Vector2Int, List<int>>();
     private int heuristicBreakingSpecialConnectionCount = 0;
+
+    public GridManager Grid => gridManager;
+
+    void Awake()
+    {
+        if (gridManager == null)
+            gridManager = GridManager.Instance != null
+                ? GridManager.Instance
+                : FindAnyObjectByType<GridManager>();
+    }
 
     public List<Vector2Int> FindPath(Vector3 startPos, int targetX, int targetZ, UnitStats moverStats)
     {
@@ -70,28 +84,29 @@ public class Pathfinding : MonoBehaviour
         PathfindingSearchMode searchMode = PathfindingSearchMode.Auto,
         int maxCost = -1)
     {
-        if (moverStats == null)
+        if (moverStats == null || gridManager == null)
         {
-            Debug.LogWarning("Pathfinding.FindPath recebeu moverStats nulo.");
+            Debug.LogWarning("Pathfinding.FindPath esta sem moverStats ou GridManager.");
             return PathFailure();
         }
 
         if (moverStats.isDowned)
             return PathFailure();
 
-        Vector2Int start = new Vector2Int(
-            Mathf.RoundToInt(startPos.x),
-            Mathf.RoundToInt(startPos.z)
-        );
+        Vector2Int start = gridManager.WorldToCell(startPos);
 
-        if (start == target)
+        if (start == target || !gridManager.IsCellValid(start) ||
+            !gridManager.IsCellValid(target))
             return PathFailure();
 
         PathfindingSearchMode resolvedMode = ResolveSearchMode(searchMode);
 
-        Debug.Log(
-            $"[Pathfinding] Iniciando busca {resolvedMode} para {moverStats.name} de {start} ate {target}. PM disponiveis: {moverStats.currentMovePoints}"
-        );
+        if (logPathfindingSearches)
+        {
+            Debug.Log(
+                $"[Pathfinding] Iniciando busca {resolvedMode} para {moverStats.name} de {start} ate {target}. PM disponiveis: {moverStats.currentMovePoints}"
+            );
+        }
 
         List<Vector2Int> openSet = new List<Vector2Int>();
         Dictionary<Vector2Int, Vector2Int> cameFrom = new Dictionary<Vector2Int, Vector2Int>();
@@ -151,7 +166,9 @@ public class Pathfinding : MonoBehaviour
 
         if (!cameFrom.ContainsKey(target))
         {
-            Debug.Log($"[Pathfinding] FALHA: caminho nao encontrado para '{moverStats.name}'.");
+            if (logPathfindingSearches)
+                Debug.Log($"[Pathfinding] FALHA: caminho nao encontrado para '{moverStats.name}'.");
+
             return PathFailure(resolvedMode);
         }
 
@@ -164,9 +181,12 @@ public class Pathfinding : MonoBehaviour
             resolvedMode
         );
 
-        Debug.Log(
-            $"[Pathfinding] SUCESSO: caminho encontrado para '{moverStats.name}' com {result.cells.Count} celulas e custo {result.totalCost} PM."
-        );
+        if (logPathfindingSearches)
+        {
+            Debug.Log(
+                $"[Pathfinding] SUCESSO: caminho encontrado para '{moverStats.name}' com {result.cells.Count} celulas e custo {result.totalCost} PM."
+            );
+        }
 
         return result;
     }
@@ -205,13 +225,13 @@ public class Pathfinding : MonoBehaviour
     {
         Dictionary<Vector2Int, int> reachableCosts = new Dictionary<Vector2Int, int>();
 
-        if (moverStats == null || moverStats.isDowned || maxCost <= 0)
+        if (moverStats == null || moverStats.isDowned || maxCost <= 0 ||
+            gridManager == null)
             return reachableCosts;
 
-        Vector2Int start = new Vector2Int(
-            Mathf.RoundToInt(startPos.x),
-            Mathf.RoundToInt(startPos.z)
-        );
+        Vector2Int start = gridManager.WorldToCell(startPos);
+        if (!gridManager.IsCellValid(start))
+            return reachableCosts;
 
         List<Vector2Int> openSet = new List<Vector2Int> { start };
         Dictionary<Vector2Int, int> costSoFar = new Dictionary<Vector2Int, int>
@@ -280,13 +300,17 @@ public class Pathfinding : MonoBehaviour
             searchMode = path != null ? path.searchMode : PathfindingSearchMode.Auto
         };
 
-        if (path == null || !path.success || path.cells == null || path.stepCosts == null)
+        if (path == null || !path.success || path.cells == null ||
+            path.stepCosts == null || gridManager == null)
             return trimmed;
 
         int runningCost = 0;
 
         for (int i = 0; i < path.cells.Count; i++)
         {
+            if (!gridManager.IsCellValid(path.cells[i]))
+                break;
+
             int stepCost = i < path.stepCosts.Count ? path.stepCosts[i] : 0;
 
             if (runningCost + stepCost > availableMovePoints)
@@ -305,9 +329,12 @@ public class Pathfinding : MonoBehaviour
 
     public int RegisterSpecialConnection(Vector2Int origin, Vector2Int destination, int cost)
     {
-        if (cost < 0)
+        if (cost < 0 || gridManager == null ||
+            !gridManager.IsCellValid(origin) || !gridManager.IsCellValid(destination))
         {
-            Debug.LogWarning("Pathfinding nao aceita conexoes especiais com custo negativo.");
+            Debug.LogWarning(
+                "Pathfinding exige custo nao negativo e pontos validos para conexoes especiais."
+            );
             return 0;
         }
 
@@ -378,33 +405,7 @@ public class Pathfinding : MonoBehaviour
 
     public bool IsBlocked(Vector2Int cell, GameObject ignoredObject)
     {
-        Vector3 checkPosition = new Vector3(cell.x, 0.5f, cell.y);
-
-        Collider[] hits = Physics.OverlapBox(
-            checkPosition,
-            new Vector3(0.4f, 0.4f, 0.4f)
-        );
-
-        foreach (Collider hit in hits)
-        {
-            if (ignoredObject != null && (hit.gameObject == ignoredObject || hit.transform.IsChildOf(ignoredObject.transform)))
-                continue;
-
-            UnitStats stats = hit.GetComponentInParent<UnitStats>();
-
-            if (stats != null)
-            {
-                if (stats.isDowned)
-                    continue;
-
-                return true;
-            }
-
-            if (hit.CompareTag("Obstacle"))
-                return true;
-        }
-
-        return false;
+        return gridManager == null || gridManager.IsCellBlocked(cell, ignoredObject);
     }
 
     public Vector2Int[] GetDirections()
@@ -505,6 +506,9 @@ public class Pathfinding : MonoBehaviour
         {
             Vector2Int next = current + direction;
 
+            if (gridManager == null || !gridManager.IsCellValid(next))
+                continue;
+
             if (!CanMoveInDirection(current, direction, moverStats))
                 continue;
 
@@ -522,6 +526,9 @@ public class Pathfinding : MonoBehaviour
             if (!specialConnections.TryGetValue(id, out SpecialMovementConnection connection))
                 continue;
 
+            if (gridManager == null || !gridManager.IsCellValid(connection.destination))
+                continue;
+
             yield return new MovementEdge(connection.destination, connection.cost);
         }
     }
@@ -536,6 +543,9 @@ public class Pathfinding : MonoBehaviour
         Vector2Int verticalCell = current + new Vector2Int(0, direction.y);
 
         return
+            gridManager != null &&
+            gridManager.IsCellValid(horizontalCell) &&
+            gridManager.IsCellValid(verticalCell) &&
             !IsBlocked(horizontalCell, ignoredObject) &&
             !IsBlocked(verticalCell, ignoredObject);
     }

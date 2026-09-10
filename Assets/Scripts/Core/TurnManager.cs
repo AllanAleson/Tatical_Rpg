@@ -15,6 +15,104 @@ public class TurnManager : MonoBehaviour
     public UnitStats currentUnit;
 
     private bool combatStarted = false;
+    private int turnVersion;
+    private readonly HashSet<ActionExecution> actions = new HashSet<ActionExecution>();
+
+    public bool IsProcessingAction => actions.Count > 0;
+    public int TurnVersion => turnVersion;
+    public bool CanAcceptPlayerInput => IsPlayerTurn() && !IsProcessingAction;
+
+    // Child actions explicitly belong to an AI sequence. Old handles cannot
+    // release another action/turn; cancellation keeps the lock until cleanup.
+    public sealed class ActionExecution : IDisposable
+    {
+        internal readonly TurnManager manager;
+        internal readonly UnitStats unit;
+        internal readonly int version;
+        internal readonly ActionExecution parent;
+        internal bool cancelled;
+
+        internal ActionExecution(TurnManager manager, UnitStats unit, ActionExecution parent)
+        {
+            this.manager = manager;
+            this.unit = unit;
+            this.parent = parent;
+            version = manager.turnVersion;
+        }
+
+        public bool IsAuthorized => manager != null && manager.IsActionAuthorized(this);
+        public TurnManager Manager => manager;
+
+        public void Dispose()
+        {
+            cancelled = true;
+            if (manager != null)
+                manager.actions.Remove(this);
+        }
+    }
+
+    public bool TryBeginAction(UnitStats unit, out ActionExecution action, ActionExecution parent = null)
+    {
+        action = null;
+        if (!isActiveAndEnabled || !combatStarted || !IsCurrentUnit(unit))
+            return false;
+
+        if (parent == null)
+        {
+            if (IsProcessingAction)
+                return false;
+        }
+        else
+        {
+            if (!IsActionAuthorized(parent) || parent.unit != unit)
+                return false;
+
+            foreach (ActionExecution running in actions)
+                if (running.parent == parent)
+                    return false;
+        }
+
+        action = new ActionExecution(this, unit, parent);
+        actions.Add(action);
+        return true;
+    }
+
+    private bool IsActionAuthorized(ActionExecution action)
+    {
+        return isActiveAndEnabled && action.manager == this &&
+            !action.cancelled && actions.Contains(action) &&
+            action.version == turnVersion && IsCurrentUnit(action.unit) &&
+            (action.parent == null || IsActionAuthorized(action.parent));
+    }
+
+    public void CancelActionsForUnit(UnitStats unit)
+    {
+        foreach (ActionExecution action in actions)
+            if (action.unit == unit)
+                action.cancelled = true;
+    }
+
+    void Update()
+    {
+        foreach (ActionExecution action in actions)
+            if (!IsActionAuthorized(action))
+                action.cancelled = true;
+
+        // Skip incapacitated units only after all action cleanup finishes.
+        if (combatStarted && currentTurnIndex >= 0 && !IsProcessingAction &&
+            (currentUnit == null || currentUnit.isDowned || !currentUnit.isActiveAndEnabled))
+            AdvanceToNextLivingUnit();
+    }
+
+    void OnDisable()
+    {
+        foreach (ActionExecution action in actions)
+            action.cancelled = true;
+
+        // The manager cannot keep ownership of actions while it is disabled.
+        // Their handles remain invalid and can still be disposed safely later.
+        actions.Clear();
+    }
 
     private class InitiativeEntry
     {
@@ -37,7 +135,7 @@ public class TurnManager : MonoBehaviour
 
     public bool IsPlayerTurn()
     {
-        return currentUnit != null &&
+        return combatStarted && IsCurrentUnit(currentUnit) &&
             currentUnit.team == UnitStats.Team.Player &&
             !currentUnit.isDowned;
     }
@@ -51,12 +149,14 @@ public class TurnManager : MonoBehaviour
     {
         return unit != null &&
             currentUnit == unit &&
+            unit.isActiveAndEnabled &&
             !currentUnit.isDowned;
     }
 
     public void EndPlayerTurn()
     {
-        EndTurn();
+        if (IsPlayerTurn())
+            TryEndTurn(currentUnit);
     }
 
     public void StartCombat()
@@ -148,18 +248,16 @@ public class TurnManager : MonoBehaviour
         AdvanceToNextLivingUnit();
     }
 
-    public void EndTurn()
+    public bool TryEndTurn(UnitStats unit)
     {
-        if (!combatStarted)
-            StartCombat();
+        if (!combatStarted || IsProcessingAction || initiativeOrder.Count == 0 ||
+            !IsCurrentUnit(unit))
+            return false;
 
-        if (!combatStarted || initiativeOrder.Count == 0)
-            return;
-
-        if (currentUnit != null)
-            Debug.Log("Fim do turno: " + currentUnit.gameObject.name);
+        Debug.Log("Fim do turno: " + unit.gameObject.name);
 
         AdvanceToNextLivingUnit();
+        return true;
     }
 
     public UnitStats GetCurrentUnit()
@@ -169,6 +267,9 @@ public class TurnManager : MonoBehaviour
 
     private void AdvanceToNextLivingUnit()
     {
+        if (IsProcessingAction)
+            return;
+
         if (initiativeOrder.Count == 0)
         {
             currentTurnIndex = -1;
@@ -182,7 +283,7 @@ public class TurnManager : MonoBehaviour
             currentTurnIndex = (currentTurnIndex + 1) % initiativeOrder.Count;
             UnitStats candidate = initiativeOrder[currentTurnIndex];
 
-            if (candidate == null || candidate.isDowned)
+            if (candidate == null || candidate.isDowned || !candidate.isActiveAndEnabled)
                 continue;
 
             StartUnitTurn(candidate);
@@ -191,10 +292,12 @@ public class TurnManager : MonoBehaviour
 
         currentUnit = null;
         Debug.LogWarning("TurnManager nao encontrou nenhuma unidade viva na ordem de iniciativa.");
+        currentTurnIndex = -1;
     }
 
     private void StartUnitTurn(UnitStats unit)
     {
+        turnVersion++;
         currentUnit = unit;
         currentUnit.ResetTurnPoints();
 
@@ -203,9 +306,6 @@ public class TurnManager : MonoBehaviour
             currentUnit.gameObject.name + "\n" +
             "Team: " + currentUnit.team
         );
-
-        if (currentUnit.team == UnitStats.Team.Enemy)
-            Debug.Log("Turno de Enemy sem IA nesta versao. Use Fim de Turno para avancar.");
 
         OnTurnStarted?.Invoke(currentUnit);
     }

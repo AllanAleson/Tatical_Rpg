@@ -70,6 +70,13 @@ public static class CombatActions
             return false;
         }
 
+        GridManager grid = GridManager.Instance;
+        if (grid == null || !grid.IsCellValid(targetCell))
+        {
+            failureReason = "Celula alvo invalida.";
+            return false;
+        }
+
         Vector2Int attackerCell = GetUnitCell(attacker);
         int distance = GetGridDistance(attackerCell, targetCell);
 
@@ -113,6 +120,13 @@ public static class CombatActions
         if (target.isDowned)
         {
             failureReason = "Essa unidade ja esta desmaiada.";
+            return false;
+        }
+
+        GridManager grid = GridManager.Instance;
+        if (grid == null || !grid.IsCellValid(attackerCell))
+        {
+            failureReason = "Celula de ataque invalida.";
             return false;
         }
 
@@ -168,6 +182,24 @@ public static class CombatActions
     }
 
     public static bool TryBasicAttack(UnitStats attacker, UnitStats target, out string failureReason)
+    {
+        return TryBasicAttack(attacker, target, out failureReason, null);
+    }
+
+    public static bool TryBasicAttack(UnitStats attacker, UnitStats target, out string failureReason,
+        TurnManager.ActionExecution parentAction)
+    {
+        TurnManager turns = parentAction != null ? parentAction.Manager :
+            Object.FindAnyObjectByType<TurnManager>();
+        failureReason = "Acao indisponivel: unidade fora do turno ou combate ocupado.";
+        if (turns == null || !turns.TryBeginAction(attacker, out var action, parentAction))
+            return false;
+
+        using (action)
+            return ResolveBasicAttack(attacker, target, out failureReason);
+    }
+
+    private static bool ResolveBasicAttack(UnitStats attacker, UnitStats target, out string failureReason)
     {
         if (!CanBasicAttack(attacker, target, out failureReason))
             return false;
@@ -335,10 +367,8 @@ public static class CombatActions
 
     private static Vector2Int GetUnitCell(UnitStats unit)
     {
-        return new Vector2Int(
-            Mathf.RoundToInt(unit.transform.position.x),
-            Mathf.RoundToInt(unit.transform.position.z)
-        );
+        GridManager grid = GridManager.Instance;
+        return grid != null ? grid.WorldToCell(unit.transform.position) : Vector2Int.zero;
     }
 
     private static List<Vector2Int> GetAttackLineBlockingCells(Vector2Int origin, Vector2Int target)
@@ -395,7 +425,11 @@ public static class CombatActions
         GameObject ignoredAttacker,
         GameObject ignoredTarget)
     {
-        Vector3 checkPosition = new Vector3(cell.x, 0.5f, cell.y);
+        GridManager grid = GridManager.Instance;
+        if (grid == null)
+            return true;
+
+        Vector3 checkPosition = grid.CellToWorld(cell, 0.5f);
 
         Collider[] hits = Physics.OverlapBox(
             checkPosition,

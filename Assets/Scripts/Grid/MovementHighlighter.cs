@@ -29,8 +29,14 @@ public class MovementHighlighter : MonoBehaviour
             return;
 
         Vector3 unitPosition = unit.transform.position;
-        int unitX = Mathf.RoundToInt(unitPosition.x);
-        int unitZ = Mathf.RoundToInt(unitPosition.z);
+        GridManager grid = pathfinding.Grid;
+        if (grid == null)
+        {
+            Debug.LogWarning("MovementHighlighter nao encontrou GridManager.");
+            return;
+        }
+
+        Vector2Int unitCell = grid.WorldToCell(unitPosition);
         int movePoints = unitStats.currentMovePoints;
         Dictionary<Vector2Int, int> reachableCosts =
             pathfinding.GetReachableCosts(unitPosition, unitStats, movePoints);
@@ -38,7 +44,7 @@ public class MovementHighlighter : MonoBehaviour
 
         foreach (KeyValuePair<Vector2Int, int> reachable in reachableCosts)
         {
-            SpawnTile(reachable.Key, moveTilePrefab);
+            SpawnTile(reachable.Key, moveTilePrefab, grid);
             shownCells.Add(reachable.Key);
         }
 
@@ -51,14 +57,12 @@ public class MovementHighlighter : MonoBehaviour
                 if (distance <= 0 || distance > movePoints)
                     continue;
 
-                int cellX = unitX + x;
-                int cellZ = unitZ + z;
-                Vector2Int cell = new Vector2Int(cellX, cellZ);
+                Vector2Int cell = unitCell + new Vector2Int(x, z);
 
-                if (shownCells.Contains(cell))
+                if (!grid.IsCellValid(cell) || shownCells.Contains(cell))
                     continue;
 
-                SpawnTile(cell, blockedTilePrefab);
+                SpawnTile(cell, blockedTilePrefab, grid);
                 shownCells.Add(cell);
             }
         }
@@ -75,13 +79,17 @@ public class MovementHighlighter : MonoBehaviour
         activeTiles.Clear();
     }
 
-    private void SpawnTile(Vector2Int cell, GameObject prefab)
+    private void SpawnTile(Vector2Int cell, GameObject prefab, GridManager grid)
     {
         if (prefab == null)
             return;
 
-        Vector3 tilePosition = new Vector3(cell.x, 0.04f, cell.y);
+        if (grid == null || !grid.IsCellValid(cell))
+            return;
+
+        Vector3 tilePosition = grid.CellToWorld(cell, 0.04f);
         GameObject tile = Instantiate(prefab, tilePosition, Quaternion.identity);
+        grid.ValidateCellVisual(tile, cell, "Highlight");
 
         activeTiles.Add(tile);
     }

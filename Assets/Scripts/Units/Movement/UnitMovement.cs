@@ -6,101 +6,204 @@ public class UnitMovement : MonoBehaviour
 {
     public float speed = 4f;
 
-    private bool isMoving = false;
+    [Header("Debug")]
+    public bool logDetailedMovement = false;
+
+    private TurnManager.ActionExecution movementAction;
+    private Coroutine movementRoutine;
+    private Vector3 lastCompletedPosition;
 
     public void MoveAlongPath(PathResult path)
     {
-        UnitStats stats = GetComponent<UnitStats>();
+        MoveAlongPath(path, null);
+    }
 
-        if (stats == null)
-        {
-            Debug.LogWarning("UnitMovement sem UnitStats: " + gameObject.name);
+    public void MoveAlongPath(PathResult path, TurnManager.ActionExecution parentAction)
+    {
+        UnitStats stats = GetComponent<UnitStats>();
+        GridManager grid = GridManager.Instance != null
+            ? GridManager.Instance
+            : FindAnyObjectByType<GridManager>();
+        if (!isActiveAndEnabled || IsMoving() || stats == null || speed <= 0f ||
+            grid == null ||
+            path == null || !path.HasSteps || path.stepCosts == null ||
+            path.stepCosts.Count != path.cells.Count)
             return;
+
+        long totalCost = 0;
+        for (int i = 0; i < path.cells.Count; i++)
+        {
+            if (!grid.IsCellValid(path.cells[i]) ||
+                grid.IsCellBlocked(path.cells[i], gameObject))
+                return;
+
+            int cost = path.stepCosts[i];
+            if (cost < 0)
+                return;
+            totalCost += cost;
         }
 
-        if (stats.isDowned)
+        if (totalCost != path.totalCost || totalCost > stats.currentMovePoints)
             return;
 
-        if (!isMoving && path != null && path.HasSteps)
-            StartCoroutine(MoveRoutine(path.cells, path.totalCost));
+        TurnManager turns = parentAction != null ? parentAction.Manager :
+            FindAnyObjectByType<TurnManager>();
+        if (turns == null || !turns.TryBeginAction(stats, out var action, parentAction))
+            return;
+
+        movementAction = action;
+        lastCompletedPosition = transform.position;
+        // Own a snapshot so callers cannot mutate a route already executing.
+        movementRoutine = StartCoroutine(MoveRoutine(new List<Vector2Int>(path.cells),
+            new List<int>(path.stepCosts), stats, grid, action));
     }
 
     public void MoveAlongPath(List<Vector2Int> path)
     {
-        UnitStats stats = GetComponent<UnitStats>();
-
-        if (stats == null)
-        {
-            Debug.LogWarning("UnitMovement sem UnitStats: " + gameObject.name);
-            return;
-        }
-
-        if (stats.isDowned)
+        if (path == null || path.Count == 0)
             return;
 
-        if (!isMoving && path != null && path.Count > 0)
-            StartCoroutine(MoveRoutine(path, CalculateAdjacentPathCost(path)));
-    }
+        PathResult result = new PathResult { success = true, cells = new List<Vector2Int>(path) };
+        GridManager grid = GridManager.Instance != null
+            ? GridManager.Instance
+            : FindAnyObjectByType<GridManager>();
+        if (grid == null)
+            return;
 
-    private IEnumerator MoveRoutine(List<Vector2Int> path, int movePointCost)
-    {
-        isMoving = true;
+        Vector2Int previous = grid.WorldToCell(transform.position);
 
         foreach (Vector2Int cell in path)
         {
-            Vector3 targetPosition = new Vector3(cell.x, 0.5f, cell.y);
+            int x = Mathf.Abs(cell.x - previous.x);
+            int z = Mathf.Abs(cell.y - previous.y);
+            if (x > 1 || z > 1 || x + z == 0)
+                return; // Non-adjacent connections require explicit PathResult costs.
+            int cost = x + z;
+            result.stepCosts.Add(cost);
+            result.totalCost += cost;
+            previous = cell;
+        }
+        MoveAlongPath(result);
+    }
 
-            while (Vector3.Distance(transform.position, targetPosition) > 0.01f)
+    private IEnumerator MoveRoutine(List<Vector2Int> path, List<int> stepCosts,
+        UnitStats stats, GridManager grid, TurnManager.ActionExecution action)
+    {
+        Vector2Int origin = grid.WorldToCell(transform.position);
+        int spent = 0;
+        try
+        {
+            for (int i = 0; i < path.Count; i++)
             {
-                transform.position = Vector3.MoveTowards(
-                    transform.position,
-                    targetPosition,
-                    speed * Time.deltaTime
-                );
+                if (!action.IsAuthorized || !isActiveAndEnabled || speed <= 0f ||
+                    !grid.IsCellValid(path[i]) ||
+                    grid.IsCellBlocked(path[i], gameObject) ||
+                    stats.currentMovePoints < stepCosts[i])
+                    yield break;
 
-                yield return null;
+                Vector3 targetPosition = grid.CellToWorld(path[i], 0.5f);
+                while (Vector3.Distance(transform.position, targetPosition) > 0.01f)
+                {
+                    // Authorization is checked every frame, including between steps.
+                    if (!action.IsAuthorized || !isActiveAndEnabled || speed <= 0f ||
+                        !grid.IsCellValid(path[i]) ||
+                        grid.IsCellBlocked(path[i], gameObject) ||
+                        stats.currentMovePoints < stepCosts[i])
+                        yield break;
+
+                    transform.position = Vector3.MoveTowards(transform.position,
+                        targetPosition, speed * Time.deltaTime);
+                    yield return null;
+                }
+
+                if (!action.IsAuthorized || !grid.IsCellValid(path[i]) ||
+                    grid.IsCellBlocked(path[i], gameObject) ||
+                    stats.currentMovePoints < stepCosts[i])
+                    yield break;
+
+                transform.position = targetPosition;
+                lastCompletedPosition = targetPosition;
+                // Commit each completed step exactly once. Incomplete steps roll back
+                // in cleanup and cost nothing; there is no total charge at the end.
+                stats.SpendMovePoints(stepCosts[i]);
+                spent += stepCosts[i];
             }
 
-            transform.position = targetPosition;
+            Debug.Log($"Movimento: {stats.name} {origin} -> {path[path.Count - 1]}; gasto {spent} PM; restante {stats.currentMovePoints} PM.");
+            if (logDetailedMovement)
+                Debug.Log(BuildDetailedMovementLog(stats, origin, path, stepCosts));
         }
-
-        UnitStats stats = GetComponent<UnitStats>();
-
-        if (stats != null)
-            stats.SpendMovePoints(movePointCost);
-
-        isMoving = false;
+        finally
+        {
+            FinishMovement(action);
+        }
     }
 
     public bool IsMoving()
     {
-        return isMoving;
+        return movementAction != null;
     }
 
-    private int CalculateAdjacentPathCost(List<Vector2Int> path)
+    public void CancelMovement()
     {
-        Vector2Int previous = new Vector2Int(
-            Mathf.RoundToInt(transform.position.x),
-            Mathf.RoundToInt(transform.position.z)
-        );
-
-        int totalCost = 0;
-
-        foreach (Vector2Int cell in path)
+        var action = movementAction;
+        if (movementRoutine != null)
         {
-            int deltaX = Mathf.Abs(cell.x - previous.x);
-            int deltaY = Mathf.Abs(cell.y - previous.y);
+            StopCoroutine(movementRoutine);
+            movementRoutine = null;
+        }
+        FinishMovement(action); // Also covers Unity stopping a coroutine on disable.
+    }
 
-            if (deltaX == 1 && deltaY == 1)
-                totalCost += 2;
-            else if (deltaX + deltaY == 1)
-                totalCost += 1;
-            else
-                totalCost += 0;
+    void OnDisable()
+    {
+        CancelMovement();
+    }
 
-            previous = cell;
+    private void FinishMovement(TurnManager.ActionExecution action)
+    {
+        if (action == null)
+            return;
+        if (movementAction == action)
+        {
+            transform.position = lastCompletedPosition;
+            movementAction = null;
+            movementRoutine = null;
+        }
+        action.Dispose();
+    }
+
+    private string BuildDetailedMovementLog(
+        UnitStats stats,
+        Vector2Int origin,
+        List<Vector2Int> path,
+        List<int> stepCosts)
+    {
+        System.Text.StringBuilder builder = new System.Text.StringBuilder();
+        Vector2Int previous = origin;
+
+        builder.Append("Movimento detalhado: ");
+        builder.Append(stats.gameObject.name);
+        builder.Append(" | ");
+        builder.Append(origin);
+
+        for (int i = 0; i < path.Count; i++)
+        {
+            int stepCost = i < stepCosts.Count ? stepCosts[i] : 0;
+
+            builder.Append(" -> ");
+            builder.Append(path[i]);
+            builder.Append(" (");
+            builder.Append(previous);
+            builder.Append(">");
+            builder.Append(path[i]);
+            builder.Append(": ");
+            builder.Append(stepCost);
+            builder.Append(" PM)");
+
+            previous = path[i];
         }
 
-        return totalCost;
+        return builder.ToString();
     }
 }
